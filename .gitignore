@@ -1,0 +1,35 @@
+# Environments and credentials
+.env
+.env.local
+*.env
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# ChromaDB local persistent database
+data/chromadb/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+Thumbs.db
+.DS_Store
+
+# Temporary archives
+*.zip
+*.tar.gz
+

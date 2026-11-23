@@ -1,0 +1,32 @@
+# =============================================================================
+# RAG Security Testing and Prompt Injection Defense Testbed
+# Supported Python Version: Python 3.10+ (Tested on Python 3.14.0)
+# =============================================================================
+
+# --- Core Runtime Dependencies ---
+# Data validation and settings
+pydantic>=2.10.0,<3.0.0
+pydantic-settings>=2.8.0,<3.0.0
+PyYAML>=6.0.0,<7.0.0
+
+# Vector database and storage
+chromadb>=1.5.0,<2.0.0
+
+# Local embeddings and tensors (PyTorch CPU / Windows AMD64)
+sentence-transformers>=3.0.0,<7.0.0
+torch>=2.2.0,<3.0.0
+numpy>=1.24.0,<3.0.0
+
+# Data analysis and benchmark evaluation metrics
+pandas>=2.2.0,<4.0.0
+
+# API service and HTTP client
+fastapi>=0.110.0,<1.0.0
+httpx>=0.27.0,<1.0.0
+
+# LLM provider SDK (Milestones 4+)
+google-genai>=3.6.0,<4.0.0
+
+# --- Development & Testing Dependencies ---
+pytest>=8.0.0,<10.0.0
+
