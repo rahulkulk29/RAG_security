@@ -56,7 +56,14 @@ def get_retriever() -> SecureRetriever:
 def get_generation_service() -> GenerationService:
     global _generation_service
     if _generation_service is None:
-        _generation_service = GenerationService()
+        try:
+            _generation_service = GenerationService()
+        except SecretRegistryError as sec_err:
+            logger.error("Failed to initialize generation service: exception_class=%s", type(sec_err).__name__)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Generation service temporarily unavailable",
+            )
     return _generation_service
 
 
