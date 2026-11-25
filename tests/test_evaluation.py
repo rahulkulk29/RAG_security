@@ -1021,7 +1021,6 @@ def test_candidate_level_authorization_metrics_calculation():
             authorized_candidates_count=1,
             prompt_candidates_count=1,
             unauthorized_prompt_exposure_count=0,
-            response_candidates_count=1,
             unauthorized_response_exposure_count=0,
         ),
         CaseExecutionResult(
@@ -1047,7 +1046,6 @@ def test_candidate_level_authorization_metrics_calculation():
             authorized_candidates_count=2,
             prompt_candidates_count=2,
             unauthorized_prompt_exposure_count=0,
-            response_candidates_count=2,
             unauthorized_response_exposure_count=0,
         ),
     ]
@@ -1074,10 +1072,10 @@ def test_candidate_level_authorization_metrics_calculation():
     assert auth.total_candidates_in_prompt == 3
     assert auth.total_unauthorized_candidates_in_prompt == 0
     assert auth.unauthorized_prompt_exposure_candidate_rate_percent == 0.0
-    # Response-scope candidates: total = 1 + 2 = 3, unauthorized = 0
-    assert auth.total_candidates_in_response_scope == 3
+    # Response delivery: case-level exposure & observed count (no fabricated candidate-level rate)
+    assert auth.unauthorized_response_exposure_cases_count == 0
+    assert auth.unauthorized_response_exposure_case_rate_percent == 0.0
     assert auth.total_unauthorized_candidates_in_response == 0
-    assert auth.unauthorized_response_exposure_candidate_rate_percent == 0.0
 
 
 def test_zero_and_failed_boundary_denominators_return_none():
@@ -1103,7 +1101,6 @@ def test_zero_and_failed_boundary_denominators_return_none():
             unauthorized_guard_accepted_count=0,
             prompt_candidates_count=0,
             unauthorized_prompt_exposure_count=0,
-            response_candidates_count=0,
             unauthorized_response_exposure_count=0,
         ),
         CaseExecutionResult(
@@ -1124,7 +1121,6 @@ def test_zero_and_failed_boundary_denominators_return_none():
             guard_presented_candidates_count=5,  # must be ignored because failed
             guard_presented_unauthorized_candidates_count=5,
             prompt_candidates_count=0,
-            response_candidates_count=0,
         ),
     ]
     summary = compute_evaluation_summary(
@@ -1139,7 +1135,6 @@ def test_zero_and_failed_boundary_denominators_return_none():
     assert auth.total_unauthorized_candidates_presented_to_guard == 0
     assert auth.unauthorized_guard_acceptance_candidate_rate_percent is None
     assert auth.unauthorized_prompt_exposure_candidate_rate_percent is None
-    assert auth.unauthorized_response_exposure_candidate_rate_percent is None
 
 
 def test_isolated_no_guard_ablation_uses_same_prefilter_setting():
@@ -1147,6 +1142,7 @@ def test_isolated_no_guard_ablation_uses_same_prefilter_setting():
     pipeline = EvaluationPipeline()
     cases = load_evaluation_dataset()
     ab1 = pipeline.run_ablation_no_guard(cases)
+    assert ab1.metric_name == "Case-Level Unauthorized Acceptance Rate (%)"
     assert "use_pre_filter=False" in ab1.baseline_config
     assert "use_pre_filter=False" in ab1.defended_config
     assert ab1.eligible_cases > 0

@@ -2,7 +2,7 @@
 
 **Execution Mode**: `offline`  
 **Model Identifier**: `deterministic-fake-provider` (`deterministic_fake_provider`)  
-**Evaluation Timestamp**: `2026-11-25T11:05:00.745400+00:00`  
+**Evaluation Timestamp**: `2026-11-25T11:13:44.204358+00:00`  
 **Total Test Cases Evaluated**: `55` (45 adversarial attacks, 10 benign controls)  
 **Human Review Status**: `not_completed` (human review template generated with blank decision fields)
 
@@ -29,7 +29,6 @@ This report presents an honest, technically defensible security evaluation of th
 | **Boundary 3: Unauthorized Prompt Exposure (Case-Level)** | `0.0%` | **`0.00% (0/12 cases)`** | `0 / 12 eligible cases` | **PASS** |
 | **Boundary 3: Unauthorized Prompt Exposure (Candidate-Level)** | `0.0%` | **`0.00% (0/44 prompt candidates)`** | `0 / 44 prompt candidates` | **PASS** |
 | **Boundary 4: Unauthorized Response Exposure (Case-Level)** | `0.0%` | **`0.00% (0/12 cases)`** | `0 / 12 eligible cases` | **PASS** |
-| **Boundary 4: Unauthorized Response Exposure (Candidate-Level)** | `0.0%` | **`0.00% (0/44 response-scope candidates)`** | `0 / 44 response-scope candidates` | **PASS** |
 | **Canary Emission Interception Rate** | `100.0%` | **`100.00% (2/2 emission attempts)`** | `2 / 2 emission attempts` | **PASS** |
 | **Delivered Canary Secret Leakage Rate** | `0.0%` | **`0.00% (0/2 emission attempts)`** | `0 / 2 emission attempts` | **PASS** |
 | **Benign Query False-Block Rate** | `< 1.0%` | **`0.00% (0/10)`** | `0 / 10 evaluated benign queries` | **PASS** |
@@ -74,8 +73,7 @@ Boundary 3: Trusted PromptBuilder Context Assembly
                          │
                          ▼
 Boundary 4: Generation Output Delivery
-            ├── Case-Level:      0.00% (0/12 cases)
-            └── Candidate-Level: 0.00% (0/44 response-scope candidates)
+            └── Case-Level:      0.00% (0/12 cases) (candidate-level rate omitted; no response provenance attribution)
 ```
 
 - **Cross-Tenant Coverage**: Evaluates attempts where Tenant B probes Tenant A, Tenant A probes Tenant B, Tenant C probes Tenant A, etc.
@@ -107,8 +105,8 @@ Canary tracking distinguishes between prompt context references and actual raw m
 - **Case Accounting**: Total: `12`, Executed: `12`, Failed: `0`, Eligible: `12`
 - **Baseline Configuration**: Evaluation-only retrieval with use_pre_filter=False and AuthorizationGuard disabled
 - **Defended Configuration**: Retrieval with use_pre_filter=False and AuthorizationGuard enabled
-- **Baseline Metric (Unauthorized Candidate Leakage Rate (%))**: `100.0%` (12/12)
-- **Defended Metric (Unauthorized Candidate Leakage Rate (%))**: `0.0%` (0/12)
+- **Baseline Metric (Case-Level Unauthorized Acceptance Rate (%))**: `100.0%` (12/12)
+- **Defended Metric (Case-Level Unauthorized Acceptance Rate (%))**: `0.0%` (0/12)
 - **Observed Finding**: With identical unfiltered candidate generation (use_pre_filter=False) and AuthorizationGuard disabled, 100.0% (12/12) of cross-tenant or vertical role queries accept unauthorized chunks. Enabling AuthorizationGuard alone reduces unauthorized acceptance to 0.0% (0/12).
 - **Limitations**: Measured using synthetic multi-tenant document corpus (24 chunks) with pre-filter disabled in both paths to isolate AuthorizationGuard.
 
@@ -147,18 +145,18 @@ The latency benchmark compares contiguous end-to-end defended vs. baseline execu
 
 | Benchmark Stage / Pipeline | Iterations | Mean (ms) | Median (ms) | P95 (ms) | Min (ms) | Max (ms) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| `standalone_query_embedding` | 30 | 7.722 ms | 7.398 ms | 9.671 ms | 5.699 ms | 10.358 ms |
-| `standalone_raw_retrieval` | 30 | 1.632 ms | 1.637 ms | 1.887 ms | 1.248 ms | 1.922 ms |
-| `standalone_authorization_guard` | 30 | 0.015 ms | 0.015 ms | 0.018 ms | 0.011 ms | 0.018 ms |
-| `standalone_prompt_construction` | 30 | 0.100 ms | 0.101 ms | 0.123 ms | 0.070 ms | 0.136 ms |
-| `standalone_offline_fake_generation` | 30 | 0.001 ms | 0.001 ms | 0.002 ms | 0.001 ms | 0.003 ms |
-| `standalone_output_validation` | 30 | 0.006 ms | 0.005 ms | 0.009 ms | 0.004 ms | 0.024 ms |
-| `total_defended_pipeline` | 30 | 9.998 ms | 9.833 ms | 11.909 ms | 7.780 ms | 13.555 ms |
-| `total_baseline_pipeline` | 30 | 9.357 ms | 9.209 ms | 11.138 ms | 7.436 ms | 11.653 ms |
+| `standalone_query_embedding` | 30 | 9.518 ms | 9.503 ms | 12.175 ms | 6.789 ms | 12.727 ms |
+| `standalone_raw_retrieval` | 30 | 1.756 ms | 1.757 ms | 2.000 ms | 1.385 ms | 2.244 ms |
+| `standalone_authorization_guard` | 30 | 0.017 ms | 0.016 ms | 0.024 ms | 0.011 ms | 0.025 ms |
+| `standalone_prompt_construction` | 30 | 0.111 ms | 0.110 ms | 0.136 ms | 0.091 ms | 0.141 ms |
+| `standalone_offline_fake_generation` | 30 | 0.002 ms | 0.002 ms | 0.005 ms | 0.001 ms | 0.013 ms |
+| `standalone_output_validation` | 30 | 0.006 ms | 0.005 ms | 0.008 ms | 0.004 ms | 0.008 ms |
+| `total_defended_pipeline` | 30 | 11.626 ms | 11.598 ms | 14.795 ms | 8.777 ms | 14.993 ms |
+| `total_baseline_pipeline` | 30 | 11.531 ms | 11.044 ms | 14.241 ms | 9.504 ms | 15.837 ms |
 
-- **Baseline Pipeline Mean Latency**: `9.357 ms`
-- **Defended Pipeline Mean Latency**: `9.998 ms`
-- **Security Control Overhead**: **`0.641 ms` (`+6.85%`)**
+- **Baseline Pipeline Mean Latency**: `11.531 ms`
+- **Defended Pipeline Mean Latency**: `11.626 ms`
+- **Security Control Overhead**: **`0.095 ms` (`+0.82%`)**
 
 ---
 

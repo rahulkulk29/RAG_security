@@ -4,71 +4,71 @@
   "components": {
     "standalone_query_embedding": {
       "count": 30,
-      "mean_ms": 7.722,
-      "median_ms": 7.398,
-      "p95_ms": 9.671,
-      "min_ms": 5.699,
-      "max_ms": 10.358
+      "mean_ms": 9.518,
+      "median_ms": 9.503,
+      "p95_ms": 12.175,
+      "min_ms": 6.789,
+      "max_ms": 12.727
     },
     "standalone_raw_retrieval": {
       "count": 30,
-      "mean_ms": 1.632,
-      "median_ms": 1.637,
-      "p95_ms": 1.887,
-      "min_ms": 1.248,
-      "max_ms": 1.922
+      "mean_ms": 1.756,
+      "median_ms": 1.757,
+      "p95_ms": 2.0,
+      "min_ms": 1.385,
+      "max_ms": 2.244
     },
     "standalone_authorization_guard": {
       "count": 30,
-      "mean_ms": 0.015,
-      "median_ms": 0.015,
-      "p95_ms": 0.018,
+      "mean_ms": 0.017,
+      "median_ms": 0.016,
+      "p95_ms": 0.024,
       "min_ms": 0.011,
-      "max_ms": 0.018
+      "max_ms": 0.025
     },
     "standalone_prompt_construction": {
       "count": 30,
-      "mean_ms": 0.1,
-      "median_ms": 0.101,
-      "p95_ms": 0.123,
-      "min_ms": 0.07,
-      "max_ms": 0.136
+      "mean_ms": 0.111,
+      "median_ms": 0.11,
+      "p95_ms": 0.136,
+      "min_ms": 0.091,
+      "max_ms": 0.141
     },
     "standalone_offline_fake_generation": {
       "count": 30,
-      "mean_ms": 0.001,
-      "median_ms": 0.001,
-      "p95_ms": 0.002,
+      "mean_ms": 0.002,
+      "median_ms": 0.002,
+      "p95_ms": 0.005,
       "min_ms": 0.001,
-      "max_ms": 0.003
+      "max_ms": 0.013
     },
     "standalone_output_validation": {
       "count": 30,
       "mean_ms": 0.006,
       "median_ms": 0.005,
-      "p95_ms": 0.009,
+      "p95_ms": 0.008,
       "min_ms": 0.004,
-      "max_ms": 0.024
+      "max_ms": 0.008
     },
     "total_defended_pipeline": {
       "count": 30,
-      "mean_ms": 9.998,
-      "median_ms": 9.833,
-      "p95_ms": 11.909,
-      "min_ms": 7.78,
-      "max_ms": 13.555
+      "mean_ms": 11.626,
+      "median_ms": 11.598,
+      "p95_ms": 14.795,
+      "min_ms": 8.777,
+      "max_ms": 14.993
     },
     "total_baseline_pipeline": {
       "count": 30,
-      "mean_ms": 9.357,
-      "median_ms": 9.209,
-      "p95_ms": 11.138,
-      "min_ms": 7.436,
-      "max_ms": 11.653
+      "mean_ms": 11.531,
+      "median_ms": 11.044,
+      "p95_ms": 14.241,
+      "min_ms": 9.504,
+      "max_ms": 15.837
     }
   },
-  "defended_total_mean_ms": 9.998,
-  "baseline_total_mean_ms": 9.357,
-  "overhead_ms": 0.641,
-  "overhead_percent": 6.85
+  "defended_total_mean_ms": 11.626,
+  "baseline_total_mean_ms": 11.531,
+  "overhead_ms": 0.095,
+  "overhead_percent": 0.82
 }

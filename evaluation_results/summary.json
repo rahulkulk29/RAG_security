@@ -1,6 +1,6 @@
 {
   "execution_mode": "offline",
-  "timestamp": "2026-11-25T11:05:00.745400+00:00",
+  "timestamp": "2026-11-25T11:13:44.204358+00:00",
   "model_id": "deterministic-fake-provider",
   "provider_type": "deterministic_fake_provider",
   "total_cases": 55,
@@ -45,9 +45,7 @@
     "unauthorized_prompt_exposure_candidate_rate_percent": 0.0,
     "unauthorized_response_exposure_cases_count": 0,
     "unauthorized_response_exposure_case_rate_percent": 0.0,
-    "total_candidates_in_response_scope": 44,
-    "total_unauthorized_candidates_in_response": 0,
-    "unauthorized_response_exposure_candidate_rate_percent": 0.0
+    "total_unauthorized_candidates_in_response": 0
   },
   "safe_failures_count": 10,
   "infrastructure_errors_count": 0,
@@ -214,7 +212,7 @@
       "eligible_cases": 12,
       "baseline_config": "Evaluation-only retrieval with use_pre_filter=False and AuthorizationGuard disabled",
       "defended_config": "Retrieval with use_pre_filter=False and AuthorizationGuard enabled",
-      "metric_name": "Unauthorized Candidate Leakage Rate (%)",
+      "metric_name": "Case-Level Unauthorized Acceptance Rate (%)",
       "baseline_events_count": 12,
       "defended_events_count": 0,
       "baseline_value": 100.0,
