@@ -48,28 +48,38 @@ class CaseExecutionResult(BaseModel):
     ]
     semantic_asr_evaluated: bool = False  # False for semantic prompt injections & offline secret extractions
     prompt_structure_integrity_passed: bool = True
-    structural_containment_passed: bool = True  # Backward compatibility alias
     error: Optional[str] = None
     error_type: Optional[str] = None
     http_status: Optional[int] = None
+
+    # Raw ChromaDB inspection telemetry
+    raw_inspection_status: Literal["completed", "failed", "inconclusive"] = "completed"
+    raw_inspection_error: Optional[str] = None
     raw_candidates_count: int = 0
     raw_authorized_candidates_count: int = 0
     raw_unauthorized_candidates_count: int = 0
+    has_raw_unauthorized_candidates: bool = False
+
+    # Guard and downstream boundary telemetry
+    guard_inspection_status: Literal["completed", "failed", "inconclusive"] = "completed"
+    guard_presented_candidates_count: int = 0
+    guard_presented_unauthorized_candidates_count: int = 0
     authorized_candidates_count: int = 0
     unauthorized_guard_accepted_count: int = 0
-    unauthorized_prompt_exposure_count: int = 0
-    unauthorized_response_exposure_count: int = 0
-    has_raw_unauthorized_candidates: bool = False
     unauthorized_doc_in_candidates: bool = False
+    prompt_candidates_count: int = 0
+    unauthorized_prompt_exposure_count: int = 0
     unauthorized_doc_in_prompt: bool = False
+    unauthorized_response_exposure_count: int = 0
     unauthorized_doc_in_response: bool = False
+
+    # Canary detection & emission telemetry
     canary_in_retrieved_context: bool = False
     canary_in_prompt: bool = False
     canary_in_raw_model_output: bool = False
     canary_detected_by_validator: bool = False
     canary_in_final_response: bool = False
-    canary_in_response: bool = False  # Backward compatibility alias
-    structural_containment_failed: bool = False
+
     sanitized_excerpt: Optional[str] = None
     latency_ms: dict[str, float] = Field(default_factory=dict)
     human_review_needed: bool = False
@@ -89,30 +99,46 @@ class CategoryMetric(BaseModel):
     inconclusive_count: int = 0
     infrastructure_error_count: int = 0
     not_evaluated_count: int = 0
-    asr_percent: Optional[float] = None  # None/null when not evaluated or eligible_cases == 0
+    asr_percent: Optional[float] = None  # None/null when not evaluated, benign, or eligible_cases == 0
     prompt_structure_integrity_rate_percent: Optional[float] = None
-    structural_containment_rate_percent: Optional[float] = None  # Backward compatibility alias
     unauthorized_access_count: int = 0
     canary_leakage_count: int = 0
-    evaluation_status: str = "evaluated"  # "evaluated" | "not_evaluated"
+    evaluation_status: str = "evaluated"  # "evaluated" | "not_evaluated" | "not_applicable"
 
 
 class AuthorizationMetrics(BaseModel):
     """Detailed authorization metrics across multiple architectural boundaries."""
     total_authorization_cases: int
+
+    # Boundary 1: Raw retrieval (ChromaDB unfiltered similarity query)
+    eligible_raw_inspection_cases: int
     cases_with_raw_unauthorized_candidates: int
-    raw_unauthorized_retrieval_rate_percent: Optional[float] = None
-    unauthorized_acceptance_cases_count: int
-    unauthorized_acceptance_rate_percent: Optional[float] = None
+    raw_unauthorized_retrieval_case_rate_percent: Optional[float] = None
+    total_raw_candidates: int
+    total_raw_unauthorized_candidates: int
+    raw_unauthorized_candidate_rate_percent: Optional[float] = None
+
+    # Boundary 2: AuthorizationGuard verification
+    eligible_authorization_cases: int
+    eligible_guard_inspection_cases: int = 0
+    unauthorized_guard_acceptance_cases_count: int
+    unauthorized_guard_acceptance_case_rate_percent: Optional[float] = None
+    total_candidates_presented_to_guard: int = 0
+    total_unauthorized_candidates_presented_to_guard: int
+    total_unauthorized_candidates_accepted_by_guard: int
+    unauthorized_guard_acceptance_candidate_rate_percent: Optional[float] = None
+
+    # Boundary 3: Prompt assembly
     unauthorized_prompt_exposure_cases_count: int
-    unauthorized_prompt_exposure_rate_percent: Optional[float] = None
+    unauthorized_prompt_exposure_case_rate_percent: Optional[float] = None
+    total_candidates_in_prompt: int = 0
+    total_unauthorized_candidates_in_prompt: int
+    unauthorized_prompt_exposure_candidate_rate_percent: Optional[float] = None
+
+    # Boundary 4: Final response delivery (case-level exposure + observed count; no candidate-level rate without response provenance)
     unauthorized_response_exposure_cases_count: int
-    unauthorized_response_exposure_rate_percent: Optional[float] = None
-    # Backward compatibility aliases
-    raw_unauthorized_retrieval_count: int = 0
-    unauthorized_acceptance_count: int = 0
-    unauthorized_prompt_exposure_count: int = 0
-    unauthorized_response_exposure_count: int = 0
+    unauthorized_response_exposure_case_rate_percent: Optional[float] = None
+    total_unauthorized_candidates_in_response: int
 
 
 class CanaryLeakageMetrics(BaseModel):
@@ -133,10 +159,16 @@ class AblationComparison(BaseModel):
     name: str
     description: str
     cases_selected: List[str] = Field(default_factory=list)
-    num_executions: int = 0
+    total_cases: int = 0
+    executed_cases: int = 0
+    failed_cases: int = 0
+    inconclusive_cases: int = 0
+    eligible_cases: int = 0
     baseline_config: str = ""
     defended_config: str = ""
     metric_name: str = ""
+    baseline_events_count: int = 0
+    defended_events_count: int = 0
     baseline_value: float = 0.0
     defended_value: float = 0.0
     observed_outcomes: str = ""

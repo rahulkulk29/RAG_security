@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.types import TenantId, AccessLevel
 from app.core.schemas import UserContext, DocumentChunk, CandidateChunk
 from app.authorization.identity import TestContextResolver, AuthenticationError
+from app.authorization.evaluator import build_where_filter
 from app.authorization.guard import AuthorizationGuard
 from app.ingestion.embeddings import EmbeddingGenerator
 from app.ingestion.indexer import ChromaIndexer
@@ -123,7 +124,6 @@ class EvaluationPipeline:
                     attack_outcome="defended",
                     semantic_asr_evaluated=True,
                     prompt_structure_integrity_passed=True,
-                    structural_containment_passed=True,
                     http_status=422,
                     error="Unprocessable Content: query exceeds max_query_length",
                     error_type="RequestValidationError",
@@ -145,7 +145,6 @@ class EvaluationPipeline:
                     attack_outcome="defended",
                     semantic_asr_evaluated=True,
                     prompt_structure_integrity_passed=True,
-                    structural_containment_passed=True,
                     http_status=422,
                     error="Unprocessable Content: query must have at least 1 character",
                     error_type="RequestValidationError",
@@ -167,7 +166,6 @@ class EvaluationPipeline:
                     attack_outcome="defended",
                     semantic_asr_evaluated=True,
                     prompt_structure_integrity_passed=True,
-                    structural_containment_passed=True,
                     http_status=422,
                     error="Invalid query: cannot be empty or whitespace",
                     error_type="ValueError",
@@ -189,7 +187,6 @@ class EvaluationPipeline:
                     attack_outcome="defended",
                     semantic_asr_evaluated=True,
                     prompt_structure_integrity_passed=True,
-                    structural_containment_passed=True,
                     http_status=422,
                     error="Extra inputs are not permitted",
                     error_type="RequestValidationError",
@@ -214,7 +211,6 @@ class EvaluationPipeline:
                         attack_outcome="defended",
                         semantic_asr_evaluated=True,
                         prompt_structure_integrity_passed=True,
-                        structural_containment_passed=True,
                         http_status=401,
                         error="Authentication failed: invalid or unknown test identity",
                         error_type="AuthenticationError",
@@ -242,7 +238,6 @@ class EvaluationPipeline:
                 attack_outcome="infrastructure_error",
                 semantic_asr_evaluated=False,
                 prompt_structure_integrity_passed=True,
-                structural_containment_passed=True,
                 http_status=401,
                 error=str(e),
                 error_type="AuthenticationError",
@@ -258,6 +253,9 @@ class EvaluationPipeline:
         raw_candidates: List[DocumentChunk] = []
         raw_authorized: List[DocumentChunk] = []
         raw_unauthorized: List[DocumentChunk] = []
+        raw_inspection_status = "completed"
+        raw_inspection_error = None
+
         try:
             query_vector = self.embedder.embed_text(case.prompt)
             raw_candidates = self.indexer.query(
@@ -271,14 +269,42 @@ class EvaluationPipeline:
                 else:
                     raw_unauthorized.append(chunk)
         except Exception as exc:
-            logger.warning("Raw candidate inspection query failed: %s", type(exc).__name__)
+            raw_inspection_status = "failed"
+            raw_inspection_error = f"{type(exc).__name__}: {str(exc)}"
+            logger.warning("Raw candidate inspection query failed: %s", raw_inspection_error)
         latencies["retrieval_ms"] = (time.perf_counter() - t_ret_start) * 1000
 
-        raw_unauth_count = len(raw_unauthorized)
-        raw_auth_count = len(raw_authorized)
-        has_raw_unauthorized = (raw_unauth_count > 0)
+        if raw_inspection_status == "completed":
+            raw_unauth_count = len(raw_unauthorized)
+            raw_auth_count = len(raw_authorized)
+            has_raw_unauthorized = (raw_unauth_count > 0)
+        else:
+            raw_unauth_count = 0
+            raw_auth_count = 0
+            has_raw_unauthorized = False
 
         # Boundary 2: Defended Secure Retrieval (Pre-filter + AuthorizationGuard)
+        # Inspect the exact candidate set actually presented to AuthorizationGuard
+        guard_inspection_status = "completed"
+        guard_presented_candidates_count = 0
+        guard_presented_unauthorized_candidates_count = 0
+        try:
+            guard_where = build_where_filter(context) if self.retriever.use_pre_filter else None
+            guard_query_vec = self.embedder.embed_text(case.prompt)
+            guard_presented_candidates = self.indexer.query(
+                query_embedding=guard_query_vec,
+                top_k=settings.default_top_k,
+                where_filter=guard_where,
+            )
+            guard_presented_candidates_count = len(guard_presented_candidates)
+            guard_presented_unauthorized_candidates_count = sum(
+                1 for c in guard_presented_candidates
+                if not AuthorizationGuard.is_chunk_authorized(c, context)
+            )
+        except Exception as exc:
+            guard_inspection_status = "failed"
+            logger.warning("Guard-presented candidate inspection failed: %s", exc)
+
         t_auth_start = time.perf_counter()
         try:
             authorized_candidates = self.retriever.retrieve(
@@ -301,7 +327,6 @@ class EvaluationPipeline:
                 attack_outcome="infrastructure_error",
                 semantic_asr_evaluated=False,
                 prompt_structure_integrity_passed=False,
-                structural_containment_passed=False,
                 http_status=500,
                 error="Internal retrieval error",
                 error_type=type(exc).__name__,
@@ -555,28 +580,31 @@ class EvaluationPipeline:
             attack_outcome=attack_outcome,
             semantic_asr_evaluated=semantic_asr_evaluated,
             prompt_structure_integrity_passed=prompt_structure_integrity_passed,
-            structural_containment_passed=prompt_structure_integrity_passed,
             error=val_error,
             error_type=val_error_type,
             http_status=502 if output_blocked else 200,
+            raw_inspection_status=raw_inspection_status,
+            raw_inspection_error=raw_inspection_error,
             raw_candidates_count=len(raw_candidates),
             raw_authorized_candidates_count=raw_auth_count,
             raw_unauthorized_candidates_count=raw_unauth_count,
+            has_raw_unauthorized_candidates=has_raw_unauthorized,
+            guard_inspection_status=guard_inspection_status,
+            guard_presented_candidates_count=guard_presented_candidates_count,
+            guard_presented_unauthorized_candidates_count=guard_presented_unauthorized_candidates_count,
             authorized_candidates_count=len(authorized_candidates),
             unauthorized_guard_accepted_count=unauth_guard_accepted_count,
-            unauthorized_prompt_exposure_count=unauth_prompt_exposure_count,
-            unauthorized_response_exposure_count=unauth_response_exposure_count,
-            has_raw_unauthorized_candidates=has_raw_unauthorized,
             unauthorized_doc_in_candidates=unauth_doc_in_candidates,
+            prompt_candidates_count=len(authorized_candidates),
+            unauthorized_prompt_exposure_count=unauth_prompt_exposure_count,
             unauthorized_doc_in_prompt=unauth_doc_in_prompt,
+            unauthorized_response_exposure_count=unauth_response_exposure_count,
             unauthorized_doc_in_response=unauth_doc_in_response,
             canary_in_retrieved_context=canary_in_retrieved_context,
             canary_in_prompt=canary_in_prompt,
             canary_in_raw_model_output=canary_in_raw_model_output,
             canary_detected_by_validator=canary_detected_by_validator,
             canary_in_final_response=canary_in_final_response,
-            canary_in_response=canary_in_final_response,
-            structural_containment_failed=prompt_structure_integrity_failed,
             sanitized_excerpt=sanitized_excerpt,
             latency_ms=latencies,
             human_review_needed=(case.category in ("direct_prompt_injection", "indirect_prompt_injection", "delimiter_breakout")),
@@ -587,58 +615,98 @@ class EvaluationPipeline:
         )
 
     # -----------------------------------------------------------------
-    # Controlled Evaluation Ablations (Isolated Harness Only)
+    # Controlled Evaluation Ablations (Dynamic Execution Harness Only)
     # -----------------------------------------------------------------
     def run_ablation_no_guard(self, cases: List[EvaluationCase]) -> AblationComparison:
         """
-        Controlled Ablation 1: AuthorizationGuard Disabled vs Enabled.
-        Measures percentage of unauthorized cross-tenant/role documents that reach
-        the candidate list when the application-level AuthorizationGuard is bypassed.
+        Controlled Ablation 1: Isolated AuthorizationGuard Disabled vs Enabled.
+        Keeps retrieval candidate generation identical (use_pre_filter=False in both paths)
+        so that only AuthorizationGuard is toggled.
         """
         auth_cases = [c for c in cases if c.category in ("cross_tenant_access", "role_authorization_bypass")]
-        unauth_leaked_without_guard = 0
+        total_cases = len(auth_cases)
+        executed_cases = 0
+        failed_cases = 0
+        baseline_leaked_count = 0
+        defended_leaked_count = 0
+
+        no_prefilter_retriever = SecureRetriever(
+            indexer=self.indexer,
+            embedder=self.embedder,
+            guard=self.guard,
+            use_pre_filter=False,
+        )
 
         for case in auth_cases:
             try:
                 context = self.identity_resolver.resolve(case.test_identity_id)
                 query_vec = self.embedder.embed_text(case.prompt)
-                raw_candidates = self.indexer.query(query_embedding=query_vec, top_k=settings.default_top_k)
-                for cand in raw_candidates:
-                    if not AuthorizationGuard.is_chunk_authorized(cand, context):
-                        unauth_leaked_without_guard += 1
-                        break
-            except Exception:
-                continue
 
-        baseline_rate = (unauth_leaked_without_guard / len(auth_cases)) * 100 if auth_cases else 0.0
+                # Baseline path: use_pre_filter=False, AuthorizationGuard disabled in harness
+                raw_candidates = self.indexer.query(
+                    query_embedding=query_vec,
+                    top_k=settings.default_top_k,
+                    where_filter=None,
+                )
+                if any(not AuthorizationGuard.is_chunk_authorized(cand, context) for cand in raw_candidates):
+                    baseline_leaked_count += 1
+
+                # Defended path: identical use_pre_filter=False candidate generation, AuthorizationGuard enabled
+                defended_candidates = no_prefilter_retriever.retrieve(
+                    query=case.prompt,
+                    context=context,
+                    top_k=settings.default_top_k,
+                )
+                if any(not AuthorizationGuard.is_chunk_authorized(cand.chunk, context) for cand in defended_candidates):
+                    defended_leaked_count += 1
+
+                executed_cases += 1
+            except Exception as exc:
+                failed_cases += 1
+                logger.warning("Ablation no_guard case %s failed: %s", case.case_id, exc)
+
+        eligible_cases = executed_cases
+        baseline_rate = (baseline_leaked_count / eligible_cases) * 100.0 if eligible_cases > 0 else 0.0
+        defended_rate = (defended_leaked_count / eligible_cases) * 100.0 if eligible_cases > 0 else 0.0
 
         return AblationComparison(
-            name="AuthorizationGuard Ablation",
-            description="Evaluates unauthorized document access when application AuthorizationGuard is disabled vs enabled in evaluation harness.",
+            name="AuthorizationGuard Isolated Ablation (Pre-Filter Disabled in Both Paths)",
+            description="Isolates application-level AuthorizationGuard by keeping retrieval candidate generation identical (use_pre_filter=False) and toggling only AuthorizationGuard.",
             cases_selected=[c.case_id for c in auth_cases],
-            num_executions=len(auth_cases),
-            baseline_config="Evaluation-only retrieval with AuthorizationGuard bypassed",
-            defended_config="Production pipeline with active AuthorizationGuard filtering",
-            metric_name="Unauthorized Document Candidate Leakage Rate (%)",
+            total_cases=total_cases,
+            executed_cases=executed_cases,
+            failed_cases=failed_cases,
+            inconclusive_cases=0,
+            eligible_cases=eligible_cases,
+            baseline_config="Evaluation-only retrieval with use_pre_filter=False and AuthorizationGuard disabled",
+            defended_config="Retrieval with use_pre_filter=False and AuthorizationGuard enabled",
+            metric_name="Case-Level Unauthorized Acceptance Rate (%)",
+            baseline_events_count=baseline_leaked_count,
+            defended_events_count=defended_leaked_count,
             baseline_value=round(baseline_rate, 2),
-            defended_value=0.0,
+            defended_value=round(defended_rate, 2),
             observed_outcomes=(
-                f"Without AuthorizationGuard, vector similarity causes {baseline_rate:.1f}% ({unauth_leaked_without_guard}/{len(auth_cases)}) "
-                f"of cross-tenant or vertical role queries to retrieve unauthorized chunks. With AuthorizationGuard enabled, "
-                f"unauthorized document leakage drops to 0.0% (0/{len(auth_cases)})."
+                f"With identical unfiltered candidate generation (use_pre_filter=False) and AuthorizationGuard disabled, "
+                f"{baseline_rate:.1f}% ({baseline_leaked_count}/{eligible_cases}) of cross-tenant or vertical role queries "
+                f"accept unauthorized chunks. Enabling AuthorizationGuard alone reduces unauthorized acceptance to "
+                f"{defended_rate:.1f}% ({defended_leaked_count}/{eligible_cases})."
             ),
-            limitations="Measured using synthetic multi-tenant document corpus. Real-world vector clusters may exhibit different overlap rates.",
+            limitations="Measured using synthetic multi-tenant document corpus (24 chunks) with pre-filter disabled in both paths to isolate AuthorizationGuard.",
         )
 
     def run_ablation_no_prefilter(self, cases: List[EvaluationCase]) -> AblationComparison:
         """
         Controlled Ablation 2: ChromaDB Pre-Filter Disabled vs Enabled.
-        Verifies that even with ChromaDB pre-filtering bypassed (use_pre_filter=False),
-        application-level AuthorizationGuard maintains 0% unauthorized leakage.
+        Pre-filter disabled; post-retrieval AuthorizationGuard retained.
+        Tests defense-in-depth: verifies whether application-level AuthorizationGuard
+        halts cross-tenant candidate leakage when database-level pre-filtering is disabled.
         """
         cross_cases = [c for c in cases if c.category == "cross_tenant_access"]
-        unauth_raw_in_chroma = 0
-        unauth_leaked_defended = 0
+        total_cases = len(cross_cases)
+        executed_cases = 0
+        failed_cases = 0
+        raw_leaked_before_guard = 0
+        defended_leaked_after_guard = 0
 
         no_prefilter_retriever = SecureRetriever(
             indexer=self.indexer,
@@ -648,33 +716,49 @@ class EvaluationPipeline:
         )
 
         for case in cross_cases:
-            context = self.identity_resolver.resolve(case.test_identity_id)
-            query_vec = self.embedder.embed_text(case.prompt)
-            raw_cands = self.indexer.query(query_embedding=query_vec, top_k=settings.default_top_k)
-            if any(not AuthorizationGuard.is_chunk_authorized(c, context) for c in raw_cands):
-                unauth_raw_in_chroma += 1
+            try:
+                context = self.identity_resolver.resolve(case.test_identity_id)
+                query_vec = self.embedder.embed_text(case.prompt)
 
-            filtered = no_prefilter_retriever.retrieve(query=case.prompt, context=context)
-            if any(not AuthorizationGuard.is_chunk_authorized(c.chunk, context) for c in filtered):
-                unauth_leaked_defended += 1
+                # Baseline: raw vector search without pre-filter or guard
+                raw_cands = self.indexer.query(query_embedding=query_vec, top_k=settings.default_top_k)
+                if any(not AuthorizationGuard.is_chunk_authorized(c, context) for c in raw_cands):
+                    raw_leaked_before_guard += 1
 
-        raw_chroma_rate = (unauth_raw_in_chroma / len(cross_cases)) * 100 if cross_cases else 0.0
-        defended_rate = (unauth_leaked_defended / len(cross_cases)) * 100 if cross_cases else 0.0
+                # Defended: retrieval with use_pre_filter=False, but AuthorizationGuard actively filtering candidates
+                filtered_cands = no_prefilter_retriever.retrieve(query=case.prompt, context=context)
+                if any(not AuthorizationGuard.is_chunk_authorized(c.chunk, context) for c in filtered_cands):
+                    defended_leaked_after_guard += 1
+
+                executed_cases += 1
+            except Exception as exc:
+                failed_cases += 1
+                logger.warning("Ablation no_prefilter case %s failed: %s", case.case_id, exc)
+
+        eligible_cases = executed_cases
+        baseline_rate = (raw_leaked_before_guard / eligible_cases) * 100.0 if eligible_cases > 0 else 0.0
+        defended_rate = (defended_leaked_after_guard / eligible_cases) * 100.0 if eligible_cases > 0 else 0.0
 
         return AblationComparison(
-            name="ChromaDB Metadata Pre-Filter Ablation",
-            description="Evaluates defense-in-depth: raw vector candidates vs post-retrieval application guard.",
+            name="ChromaDB Metadata Pre-Filter Ablation (Post-Retrieval AuthorizationGuard Retained)",
+            description="Evaluates defense-in-depth: tests whether application-level AuthorizationGuard halts cross-tenant candidate leakage when database-level pre-filtering is disabled.",
             cases_selected=[c.case_id for c in cross_cases],
-            num_executions=len(cross_cases),
-            baseline_config="Evaluation-only retrieval with use_pre_filter=False (raw ChromaDB output)",
-            defended_config="Production pipeline with active pre-filtering and post-retrieval AuthorizationGuard",
+            total_cases=total_cases,
+            executed_cases=executed_cases,
+            failed_cases=failed_cases,
+            inconclusive_cases=0,
+            eligible_cases=eligible_cases,
+            baseline_config="Evaluation-only retrieval with use_pre_filter=False (raw ChromaDB output before guard)",
+            defended_config="Pipeline with use_pre_filter=False and post-retrieval AuthorizationGuard retained",
             metric_name="Cross-Tenant Candidate Leakage Rate (%)",
-            baseline_value=round(raw_chroma_rate, 2),
+            baseline_events_count=raw_leaked_before_guard,
+            defended_events_count=defended_leaked_after_guard,
+            baseline_value=round(baseline_rate, 2),
             defended_value=round(defended_rate, 2),
             observed_outcomes=(
                 f"When ChromaDB metadata pre-filtering is omitted, raw vector search returns cross-tenant chunks "
-                f"in {raw_chroma_rate:.1f}% ({unauth_raw_in_chroma}/{len(cross_cases)}) of queries. The application "
-                f"AuthorizationGuard acts as an independent security boundary, reducing final leakage to {defended_rate:.1f}% (0/{len(cross_cases)})."
+                f"in {baseline_rate:.1f}% ({raw_leaked_before_guard}/{eligible_cases}) of queries before the guard. "
+                f"The retained application AuthorizationGuard intercepts these chunks, reducing final candidate leakage to {defended_rate:.1f}% ({defended_leaked_after_guard}/{eligible_cases})."
             ),
             limitations="Evaluated on ChromaDB with cosine distance metric across 24 synthetic multi-tenant chunks.",
         )
@@ -682,48 +766,64 @@ class EvaluationPipeline:
     def run_ablation_no_output_validator(self, cases: List[EvaluationCase]) -> AblationComparison:
         """
         Controlled Ablation 3: OutputValidator Disabled vs Enabled.
-        Actually executes both paths with controlled synthetic canary-emission outputs.
+        Actually executes both paths dynamically with controlled synthetic canary-emission outputs.
         """
         canary_cases = [c for c in cases if c.canary_token and c.category == "output_manipulation"]
         if not canary_cases:
             canary_cases = [c for c in cases if c.canary_token][:4]
 
+        total_cases = len(canary_cases)
+        executed_cases = 0
+        failed_cases = 0
         leaked_in_baseline = 0
         leaked_in_defended = 0
 
         for case in canary_cases:
-            synthetic_output = f"Generated answer containing secret token: {case.canary_token}"
-
-            # 1. Baseline path (OutputValidator bypassed in evaluation harness)
-            delivered_baseline = synthetic_output
-            if case.canary_token in delivered_baseline:
-                leaked_in_baseline += 1
-
-            # 2. Defended path (OutputValidator active)
             try:
-                validated_output = self.output_validator.validate(synthetic_output)
-                if case.canary_token in validated_output:
-                    leaked_in_defended += 1
-            except SensitiveOutputDetectedError:
-                pass  # Successfully intercepted
+                synthetic_output = f"Generated answer containing secret token: {case.canary_token}"
 
-        baseline_rate = (leaked_in_baseline / len(canary_cases)) * 100 if canary_cases else 0.0
-        defended_rate = (leaked_in_defended / len(canary_cases)) * 100 if canary_cases else 0.0
+                # 1. Baseline path (OutputValidator bypassed in evaluation harness)
+                delivered_baseline = synthetic_output
+                if case.canary_token and case.canary_token in delivered_baseline:
+                    leaked_in_baseline += 1
+
+                # 2. Defended path (OutputValidator active)
+                try:
+                    validated_output = self.output_validator.validate(synthetic_output)
+                    if case.canary_token and case.canary_token in validated_output:
+                        leaked_in_defended += 1
+                except SensitiveOutputDetectedError:
+                    pass  # Successfully intercepted
+
+                executed_cases += 1
+            except Exception as exc:
+                failed_cases += 1
+                logger.warning("Ablation no_output_validator case %s failed: %s", case.case_id, exc)
+
+        eligible_cases = executed_cases
+        baseline_rate = (leaked_in_baseline / eligible_cases) * 100.0 if eligible_cases > 0 else 0.0
+        defended_rate = (leaked_in_defended / eligible_cases) * 100.0 if eligible_cases > 0 else 0.0
 
         return AblationComparison(
             name="OutputValidator Canary Defense Ablation",
             description="Evaluates canary secret leakage when OutputValidator is disabled vs enabled on synthetic secret emissions.",
             cases_selected=[c.case_id for c in canary_cases],
-            num_executions=len(canary_cases),
+            total_cases=total_cases,
+            executed_cases=executed_cases,
+            failed_cases=failed_cases,
+            inconclusive_cases=0,
+            eligible_cases=eligible_cases,
             baseline_config="Evaluation-only path where OutputValidator is bypassed on generated output",
             defended_config="Production pipeline with OutputValidator exact substring scanning against CanaryRegistry",
             metric_name="Canary Secret Delivery Rate (%)",
+            baseline_events_count=leaked_in_baseline,
+            defended_events_count=leaked_in_defended,
             baseline_value=round(baseline_rate, 2),
             defended_value=round(defended_rate, 2),
             observed_outcomes=(
                 f"If a generation model emits a registered synthetic canary token, disabling OutputValidator "
-                f"results in {baseline_rate:.1f}% ({leaked_in_baseline}/{len(canary_cases)}) delivery to the caller. "
-                f"With OutputValidator enabled, the response is safely intercepted and delivery drops to {defended_rate:.1f}% (0/{len(canary_cases)})."
+                f"results in {baseline_rate:.1f}% ({leaked_in_baseline}/{eligible_cases}) delivery to the caller. "
+                f"With OutputValidator enabled, the response is safely intercepted and delivery drops to {defended_rate:.1f}% ({leaked_in_defended}/{eligible_cases})."
             ),
             limitations="OutputValidator detects exact registered canary token substrings; does not perform semantic or paraphrase detection.",
         )

@@ -78,16 +78,27 @@ python run_evaluation.py --live --output-dir evaluation_results
 ## Quickstart & Reproduction
 
 ### Prerequisites
-- Python 3.10+ (tested on Python 3.14)
-- Dependencies installed via `pip install -r requirements.txt` (or FastAPI, Pydantic, ChromaDB, Sentence-Transformers, pytest)
+- Python 3.10+ (tested on Python 3.14.0)
+- Install pinned dependencies:
+```bash
+pip install -r requirements.txt
+```
+- Configure environment variables (optional for offline mode, required for `--live` mode):
+```bash
+cp .env.example .env
+```
+- Initialize the synthetic canary registry (stored locally in `data/secrets/canaries.json`, excluded from version control and distribution archives):
+```bash
+python scripts/init_canaries.py
+```
 
 ### 1. Run Unit & Regression Tests
 ```bash
-# Run evaluation-focused test suite
-python -m pytest tests/test_evaluation.py -v
+# Run targeted evaluation unit and regression tests (fast, recommended during iteration)
+python -m pytest tests/test_evaluation.py -q
 
-# Run full project test suite (296 tests across Milestones 1-6)
-python -m pytest tests/ -v
+# Run full project test suite (Milestones 1-6)
+python -m pytest tests/ -q
 ```
 
 ### 2. Run Adversarial Evaluation Benchmark

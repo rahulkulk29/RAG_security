@@ -2,29 +2,37 @@
   "mode": "offline_deterministic",
   "sample_count": 30,
   "components": {
+    "standalone_query_embedding": {
+      "count": 30,
+      "mean_ms": 7.722,
+      "median_ms": 7.398,
+      "p95_ms": 9.671,
+      "min_ms": 5.699,
+      "max_ms": 10.358
+    },
     "standalone_raw_retrieval": {
       "count": 30,
-      "mean_ms": 1.192,
-      "median_ms": 1.155,
-      "p95_ms": 1.726,
-      "min_ms": 0.685,
-      "max_ms": 1.913
+      "mean_ms": 1.632,
+      "median_ms": 1.637,
+      "p95_ms": 1.887,
+      "min_ms": 1.248,
+      "max_ms": 1.922
     },
     "standalone_authorization_guard": {
       "count": 30,
       "mean_ms": 0.015,
-      "median_ms": 0.013,
-      "p95_ms": 0.023,
-      "min_ms": 0.008,
-      "max_ms": 0.041
+      "median_ms": 0.015,
+      "p95_ms": 0.018,
+      "min_ms": 0.011,
+      "max_ms": 0.018
     },
     "standalone_prompt_construction": {
       "count": 30,
-      "mean_ms": 0.09,
-      "median_ms": 0.085,
-      "p95_ms": 0.121,
-      "min_ms": 0.064,
-      "max_ms": 0.172
+      "mean_ms": 0.1,
+      "median_ms": 0.101,
+      "p95_ms": 0.123,
+      "min_ms": 0.07,
+      "max_ms": 0.136
     },
     "standalone_offline_fake_generation": {
       "count": 30,
@@ -36,31 +44,31 @@
     },
     "standalone_output_validation": {
       "count": 30,
-      "mean_ms": 0.005,
+      "mean_ms": 0.006,
       "median_ms": 0.005,
-      "p95_ms": 0.006,
-      "min_ms": 0.003,
-      "max_ms": 0.008
+      "p95_ms": 0.009,
+      "min_ms": 0.004,
+      "max_ms": 0.024
     },
     "total_defended_pipeline": {
       "count": 30,
-      "mean_ms": 11.407,
-      "median_ms": 11.136,
-      "p95_ms": 14.271,
-      "min_ms": 9.61,
-      "max_ms": 15.125
+      "mean_ms": 9.998,
+      "median_ms": 9.833,
+      "p95_ms": 11.909,
+      "min_ms": 7.78,
+      "max_ms": 13.555
     },
     "total_baseline_pipeline": {
       "count": 30,
-      "mean_ms": 10.954,
-      "median_ms": 10.461,
-      "p95_ms": 13.078,
-      "min_ms": 9.342,
-      "max_ms": 14.43
+      "mean_ms": 9.357,
+      "median_ms": 9.209,
+      "p95_ms": 11.138,
+      "min_ms": 7.436,
+      "max_ms": 11.653
     }
   },
-  "defended_total_mean_ms": 11.407,
-  "baseline_total_mean_ms": 10.954,
-  "overhead_ms": 0.453,
-  "overhead_percent": 4.14
+  "defended_total_mean_ms": 9.998,
+  "baseline_total_mean_ms": 9.357,
+  "overhead_ms": 0.641,
+  "overhead_percent": 6.85
 }

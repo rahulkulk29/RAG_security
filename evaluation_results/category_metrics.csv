@@ -1,10 +1,10 @@
 category,total_cases,eligible_cases,attack_success_count,attack_defended_count,inconclusive_count,infrastructure_error_count,not_evaluated_count,asr_percent,prompt_structure_integrity_rate_percent,unauthorized_access_count,canary_leakage_count,evaluation_status
-benign_control,10,10,0,10,0,0,0,0.0,100.0,0,0,evaluated
+benign_control,10,0,0,0,0,0,0,N/A,100.0,0,0,not_applicable
 cross_tenant_access,6,6,0,6,0,0,0,0.0,100.0,0,0,evaluated
-delimiter_breakout,5,0,0,0,0,0,5,Not Evaluated,100.0,0,0,not_evaluated
-direct_prompt_injection,6,0,0,0,0,0,6,Not Evaluated,100.0,0,0,not_evaluated
-indirect_prompt_injection,6,0,0,0,0,0,6,Not Evaluated,100.0,0,0,not_evaluated
+delimiter_breakout,5,0,0,0,0,0,5,N/A,100.0,0,0,not_evaluated
+direct_prompt_injection,6,0,0,0,0,0,6,N/A,100.0,0,0,not_evaluated
+indirect_prompt_injection,6,0,0,0,0,0,6,N/A,100.0,0,0,not_evaluated
 malformed_oversized_input,5,5,0,5,0,0,0,0.0,100.0,0,0,evaluated
 output_manipulation,5,5,0,5,0,0,0,0.0,100.0,0,0,evaluated
 role_authorization_bypass,6,6,0,6,0,0,0,0.0,100.0,0,0,evaluated
-synthetic_secret_extraction,6,0,0,0,0,0,6,Not Evaluated,100.0,0,0,not_evaluated
+synthetic_secret_extraction,6,0,0,0,0,0,6,N/A,100.0,0,0,not_evaluated

@@ -139,21 +139,34 @@ class EvaluationRunner:
             if summary.canary_metrics.canary_interception_rate_percent is not None
             else "N/A"
         )
-        raw_retrieval_str = (
-            f"{summary.authorization_metrics.raw_unauthorized_retrieval_rate_percent:.2f}% ({summary.authorization_metrics.cases_with_raw_unauthorized_candidates}/{summary.authorization_metrics.total_authorization_cases})"
-            if summary.authorization_metrics.raw_unauthorized_retrieval_rate_percent is not None
+        auth = summary.authorization_metrics
+        raw_retrieval_case_str = (
+            f"{auth.raw_unauthorized_retrieval_case_rate_percent:.2f}% ({auth.cases_with_raw_unauthorized_candidates}/{auth.eligible_raw_inspection_cases})"
+            if auth.raw_unauthorized_retrieval_case_rate_percent is not None
             else "N/A"
         )
-        auth_accept_str = (
-            f"{summary.authorization_metrics.unauthorized_acceptance_rate_percent:.2f}% ({summary.authorization_metrics.unauthorized_acceptance_cases_count}/{summary.authorization_metrics.total_authorization_cases})"
-            if summary.authorization_metrics.unauthorized_acceptance_rate_percent is not None
+        raw_retrieval_cand_str = (
+            f"{auth.raw_unauthorized_candidate_rate_percent:.2f}% ({auth.total_raw_unauthorized_candidates}/{auth.total_raw_candidates})"
+            if auth.raw_unauthorized_candidate_rate_percent is not None
+            else "N/A"
+        )
+        auth_accept_case_str = (
+            f"{auth.unauthorized_guard_acceptance_case_rate_percent:.2f}% ({auth.unauthorized_guard_acceptance_cases_count}/{auth.eligible_authorization_cases})"
+            if auth.unauthorized_guard_acceptance_case_rate_percent is not None
+            else "N/A"
+        )
+        auth_accept_cand_str = (
+            f"{auth.unauthorized_guard_acceptance_candidate_rate_percent:.2f}% ({auth.total_unauthorized_candidates_accepted_by_guard}/{auth.total_unauthorized_candidates_presented_to_guard})"
+            if auth.unauthorized_guard_acceptance_candidate_rate_percent is not None
             else "N/A"
         )
 
         print(f"Overall Attack Success Rate: {overall_asr_str}")
         print(f"Evaluated Controls ASR:     {eval_asr_str}")
-        print(f"Raw Unauthorized Retrieval: {raw_retrieval_str}")
-        print(f"Guard Acceptance Rate:      {auth_accept_str}")
+        print(f"Raw Unauthorized Retrieval (Case):  {raw_retrieval_case_str}")
+        print(f"Raw Unauthorized Retrieval (Cand):  {raw_retrieval_cand_str}")
+        print(f"Guard Acceptance Rate (Case):       {auth_accept_case_str}")
+        print(f"Guard Acceptance Rate (Cand):       {auth_accept_cand_str}")
         print(f"Canary Interception Rate:   {canary_intercept_str}")
         print(f"Canary Leakage Rate:        {canary_leak_str}")
         print(f"Benign False-Block Rate:    {false_block_str}")

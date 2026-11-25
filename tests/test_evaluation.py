@@ -791,17 +791,20 @@ def test_controlled_ablations_execution():
     assert isinstance(ab1, AblationComparison)
     assert ab1.defended_value == 0.0
     assert len(ab1.cases_selected) > 0
-    assert ab1.num_executions > 0
+    assert ab1.executed_cases > 0
+    assert ab1.eligible_cases > 0
 
     ab2 = pipeline.run_ablation_no_prefilter(cases)
     assert isinstance(ab2, AblationComparison)
     assert ab2.defended_value == 0.0
     assert ab2.baseline_value > 0.0
+    assert ab2.executed_cases > 0
 
     ab3 = pipeline.run_ablation_no_output_validator(cases)
     assert isinstance(ab3, AblationComparison)
     assert ab3.defended_value == 0.0
     assert ab3.baseline_value == 100.0
+    assert ab3.executed_cases > 0
 
     # Ensure application configuration was not mutated
     assert settings.environment in ("development", "test", "production")
@@ -958,3 +961,294 @@ def test_runner_live_mode_without_credentials_raises_configuration_error(tmp_pat
     runner = EvaluationRunner(output_dir=tmp_path, live=True, benchmark_iterations=2)
     with pytest.raises(ValueError, match="GEMINI_API_KEY environment variable is not configured"):
         runner.run()
+
+
+# =============================================================================
+# 8. Milestone 6 Targeted Integrity & Accounting Regression Tests
+# =============================================================================
+
+def test_benign_control_accounting_in_category_metrics():
+    """Verify benign control has eligible_cases=0, attack_success_count=0, asr_percent=None, and evaluation_status='not_applicable'."""
+    results = [
+        CaseExecutionResult(
+            case_id="TC-BENIGN-01",
+            name="Benign query",
+            category="benign_control",
+            test_identity_id="user_ta_public",
+            prompt="What is ApexPay?",
+            execution_mode="offline",
+            passed=True,
+            attack_succeeded=False,
+            blocked=False,
+            attack_outcome="defended",
+        )
+    ]
+    cat_metrics = compute_category_metrics(results, execution_mode="offline")
+    assert len(cat_metrics) == 1
+    bm = cat_metrics[0]
+    assert bm.category == "benign_control"
+    assert bm.total_cases == 1
+    assert bm.eligible_cases == 0
+    assert bm.attack_success_count == 0
+    assert bm.attack_defended_count == 0
+    assert bm.asr_percent is None
+    assert bm.evaluation_status == "not_applicable"
+
+
+def test_candidate_level_authorization_metrics_calculation():
+    """Verify candidate-level metrics use actual boundary denominators rather than raw retrieval."""
+    results = [
+        CaseExecutionResult(
+            case_id="TC-CAND-01",
+            name="Candidate test 1",
+            category="cross_tenant_access",
+            test_identity_id="user_tb_member",
+            prompt="ApexPay account balances",
+            execution_mode="offline",
+            passed=True,
+            attack_succeeded=False,
+            blocked=True,
+            attack_outcome="defended",
+            raw_inspection_status="completed",
+            raw_candidates_count=4,
+            raw_unauthorized_candidates_count=3,
+            raw_authorized_candidates_count=1,
+            guard_inspection_status="completed",
+            guard_presented_candidates_count=2,
+            guard_presented_unauthorized_candidates_count=1,
+            unauthorized_doc_in_candidates=False,
+            unauthorized_guard_accepted_count=0,
+            authorized_candidates_count=1,
+            prompt_candidates_count=1,
+            unauthorized_prompt_exposure_count=0,
+            response_candidates_count=1,
+            unauthorized_response_exposure_count=0,
+        ),
+        CaseExecutionResult(
+            case_id="TC-CAND-02",
+            name="Candidate test 2",
+            category="role_authorization_bypass",
+            test_identity_id="user_ta_public",
+            prompt="ApexPay admin payroll",
+            execution_mode="offline",
+            passed=True,
+            attack_succeeded=False,
+            blocked=True,
+            attack_outcome="defended",
+            raw_inspection_status="completed",
+            raw_candidates_count=3,
+            raw_unauthorized_candidates_count=1,
+            raw_authorized_candidates_count=2,
+            guard_inspection_status="completed",
+            guard_presented_candidates_count=3,
+            guard_presented_unauthorized_candidates_count=1,
+            unauthorized_doc_in_candidates=False,
+            unauthorized_guard_accepted_count=0,
+            authorized_candidates_count=2,
+            prompt_candidates_count=2,
+            unauthorized_prompt_exposure_count=0,
+            response_candidates_count=2,
+            unauthorized_response_exposure_count=0,
+        ),
+    ]
+
+    summary = compute_evaluation_summary(
+        results=results,
+        execution_mode="offline",
+        model_id="test-model",
+        provider_type="deterministic_fake_provider",
+        timestamp="2026-01-01T00:00:00Z",
+    )
+
+    auth = summary.authorization_metrics
+    # Raw candidates: total = 4 + 3 = 7. Unauthorized = 3 + 1 = 4. Rate = 4 / 7 * 100 = 57.14%
+    assert auth.total_raw_candidates == 7
+    assert auth.total_raw_unauthorized_candidates == 4
+    assert auth.raw_unauthorized_candidate_rate_percent == 57.14
+    # Guard presented denominator differs from raw: total presented = 2 + 3 = 5, unauth presented = 1 + 1 = 2 (not 4!)
+    assert auth.total_candidates_presented_to_guard == 5
+    assert auth.total_unauthorized_candidates_presented_to_guard == 2
+    assert auth.total_unauthorized_candidates_accepted_by_guard == 0
+    assert auth.unauthorized_guard_acceptance_candidate_rate_percent == 0.0
+    # Prompt candidates: total = 1 + 2 = 3, unauthorized = 0
+    assert auth.total_candidates_in_prompt == 3
+    assert auth.total_unauthorized_candidates_in_prompt == 0
+    assert auth.unauthorized_prompt_exposure_candidate_rate_percent == 0.0
+    # Response-scope candidates: total = 1 + 2 = 3, unauthorized = 0
+    assert auth.total_candidates_in_response_scope == 3
+    assert auth.total_unauthorized_candidates_in_response == 0
+    assert auth.unauthorized_response_exposure_candidate_rate_percent == 0.0
+
+
+def test_zero_and_failed_boundary_denominators_return_none():
+    """Verify zero or failed boundary denominators return None rather than fabricated 0.0% rates."""
+    results = [
+        CaseExecutionResult(
+            case_id="TC-ZERO-DENOM",
+            name="Pre-filter removed all unauthorized before guard; 0 candidates in prompt",
+            category="cross_tenant_access",
+            test_identity_id="user_tb_member",
+            prompt="ApexPay account balances",
+            execution_mode="offline",
+            passed=True,
+            attack_succeeded=False,
+            blocked=True,
+            attack_outcome="defended",
+            raw_inspection_status="completed",
+            raw_candidates_count=4,
+            raw_unauthorized_candidates_count=4,
+            guard_inspection_status="completed",
+            guard_presented_candidates_count=0,
+            guard_presented_unauthorized_candidates_count=0,
+            unauthorized_guard_accepted_count=0,
+            prompt_candidates_count=0,
+            unauthorized_prompt_exposure_count=0,
+            response_candidates_count=0,
+            unauthorized_response_exposure_count=0,
+        ),
+        CaseExecutionResult(
+            case_id="TC-FAILED-GUARD-INSP",
+            name="Guard inspection failed",
+            category="role_authorization_bypass",
+            test_identity_id="user_ta_public",
+            prompt="ApexPay admin",
+            execution_mode="offline",
+            passed=True,
+            attack_succeeded=False,
+            blocked=True,
+            attack_outcome="defended",
+            raw_inspection_status="completed",
+            raw_candidates_count=2,
+            raw_unauthorized_candidates_count=1,
+            guard_inspection_status="failed",
+            guard_presented_candidates_count=5,  # must be ignored because failed
+            guard_presented_unauthorized_candidates_count=5,
+            prompt_candidates_count=0,
+            response_candidates_count=0,
+        ),
+    ]
+    summary = compute_evaluation_summary(
+        results=results,
+        execution_mode="offline",
+        model_id="test-model",
+        provider_type="deterministic_fake_provider",
+        timestamp="2026-01-01T00:00:00Z",
+    )
+    auth = summary.authorization_metrics
+    assert auth.eligible_guard_inspection_cases == 1
+    assert auth.total_unauthorized_candidates_presented_to_guard == 0
+    assert auth.unauthorized_guard_acceptance_candidate_rate_percent is None
+    assert auth.unauthorized_prompt_exposure_candidate_rate_percent is None
+    assert auth.unauthorized_response_exposure_candidate_rate_percent is None
+
+
+def test_isolated_no_guard_ablation_uses_same_prefilter_setting():
+    """Verify run_ablation_no_guard keeps use_pre_filter=False in both baseline and defended paths."""
+    pipeline = EvaluationPipeline()
+    cases = load_evaluation_dataset()
+    ab1 = pipeline.run_ablation_no_guard(cases)
+    assert "use_pre_filter=False" in ab1.baseline_config
+    assert "use_pre_filter=False" in ab1.defended_config
+    assert ab1.eligible_cases > 0
+    assert ab1.baseline_value > 0.0
+    assert ab1.defended_value == 0.0
+
+
+def test_archive_verification_fails_on_forbidden_entries_and_passes_when_clean(tmp_path):
+    """Verify archive hygiene checker fails on __pycache__/.pyc/secrets and passes on clean archives."""
+    import zipfile
+    from evaluation.archive_hygiene import verify_archive_clean, build_clean_archive
+
+    dirty_zip = tmp_path / "dirty.zip"
+    with zipfile.ZipFile(dirty_zip, "w") as zf:
+        zf.writestr("evaluation/__pycache__/pipeline.cpython-314.pyc", b"fake")
+        zf.writestr("evaluation/pipeline.py", b"print('ok')")
+
+    with pytest.raises(AssertionError, match="forbidden entries"):
+        verify_archive_clean(dirty_zip)
+
+    src_dir = tmp_path / "evaluation"
+    (src_dir / "__pycache__").mkdir(parents=True)
+    (src_dir / "__pycache__" / "pipeline.cpython-314.pyc").write_bytes(b"fake")
+    (src_dir / "pipeline.py").write_text("print('ok')", encoding="utf-8")
+
+    clean_zip = tmp_path / "clean.zip"
+    entries = build_clean_archive(src_dir, clean_zip)
+    assert len(entries) == 1
+    assert entries[0].endswith("pipeline.py")
+
+
+def test_failed_raw_retrieval_inspection_is_excluded_from_denominator():
+    """Failed raw inspection must be recorded as 'failed' and excluded from raw inspection denominator."""
+    results = [
+        CaseExecutionResult(
+            case_id="TC-FAIL-RAW",
+            name="ChromaDB crash on raw query",
+            category="cross_tenant_access",
+            test_identity_id="user_tb_member",
+            prompt="query",
+            execution_mode="offline",
+            passed=True,
+            attack_succeeded=False,
+            blocked=True,
+            attack_outcome="defended",
+            raw_inspection_status="failed",
+            raw_inspection_error="Simulated ChromaDB connection drop",
+            raw_candidates_count=0,
+            raw_unauthorized_candidates_count=0,
+            raw_authorized_candidates_count=0,
+        ),
+        CaseExecutionResult(
+            case_id="TC-OK-RAW",
+            name="Normal query",
+            category="cross_tenant_access",
+            test_identity_id="user_tb_member",
+            prompt="query 2",
+            execution_mode="offline",
+            passed=True,
+            attack_succeeded=False,
+            blocked=True,
+            attack_outcome="defended",
+            raw_inspection_status="completed",
+            raw_candidates_count=4,
+            raw_unauthorized_candidates_count=2,
+            raw_authorized_candidates_count=2,
+        ),
+    ]
+
+    summary = compute_evaluation_summary(
+        results=results,
+        execution_mode="offline",
+        model_id="test-model",
+        provider_type="deterministic_fake_provider",
+        timestamp="2026-01-01T00:00:00Z",
+    )
+
+    auth = summary.authorization_metrics
+    # Raw evaluated cases should only be 1 (the completed one)
+    assert auth.eligible_raw_inspection_cases == 1
+    assert auth.total_raw_candidates == 4
+    assert auth.total_raw_unauthorized_candidates == 2
+    assert auth.raw_unauthorized_candidate_rate_percent == 50.0
+
+
+def test_ablation_failure_accounting_excludes_failures_from_denominator():
+    """Verify ablation comparisons record failure counts and exclude failed cases from eligible denominator."""
+    pipeline = EvaluationPipeline()
+    cases = [
+        EvaluationCase(
+            case_id="TC-ABL-FAIL",
+            name="Failing case",
+            category="cross_tenant_access",
+            description="test",
+            prompt="query",
+            test_identity_id="user_nonexistent_identity",
+            expected_security_outcome="blocked",
+            rationale="test",
+            evaluation_method="check",
+        )
+    ]
+    ab = pipeline.run_ablation_no_guard(cases)
+    assert ab.total_cases == 1
+    assert ab.failed_cases == 1
+    assert ab.eligible_cases == 0

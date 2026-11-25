@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Optional
 from app.core.config import settings
 from app.core.types import TenantId, AccessLevel
 from app.core.schemas import UserContext
+from app.authorization.evaluator import build_where_filter
 from evaluation.schemas import LatencyStats, LatencySummary
 
 
@@ -42,10 +43,24 @@ class LatencyBenchmarker:
         """
         Runs repeated timing loops across each pipeline stage using monotonic time.perf_counter().
         Measures comparable end-to-end baseline (unguarded) vs defended paths without double-counting.
-        Both paths perform equivalent work: query validation, query embedding, vector search,
-        prompt construction, and response handling.
+
+        Both baseline and defended paths perform strictly equivalent common work:
+        1. Query input validation (length and whitespace check)
+        2. Query embedding via embed_text() (exactly 1 embedding operation per iteration)
+        3. ChromaDB vector query with top_k=default_top_k
+        4. Prompt preparation from retrieved chunks
+        5. Output response processing
+
+        Security-specific additions in the defended path:
+        - ChromaDB metadata where_filter pre-filtering
+        - Post-retrieval application AuthorizationGuard candidate verification
+        - Trusted PromptBuilder XML-delimiter wrapping
+        - OutputValidator exact canary substring scanning
+
+        Standalone fake generation is measured separately and kept out of the pipeline latency overhead.
         """
         iterations = max(30, iterations)
+        query_embedding_times: List[float] = []
         raw_retrieval_times: List[float] = []
         auth_guard_times: List[float] = []
         prompt_times: List[float] = []
@@ -62,86 +77,108 @@ class LatencyBenchmarker:
         query = "What are the core capabilities and API features offered by the ApexPay platform?"
         sample_output = "The ApexPay platform provides enterprise payment routing and settlement APIs."
 
-        # Pre-warm query embedding and ChromaDB collection before timed iterations
+        # -------------------------------------------------------------
+        # Warm-up phase: 5 iterations strictly excluded from recorded samples
+        # -------------------------------------------------------------
         for _ in range(5):
             warm_vec = self.pipeline.embedder.embed_text(query)
             _ = self.pipeline.indexer.query(query_embedding=warm_vec, top_k=settings.default_top_k)
             _ = self.pipeline.retriever.retrieve(query=query, context=context)
 
-        # Pre-calculated vector for isolated component micro-benchmarks
-        query_vector = self.pipeline.embedder.embed_text(query)
+        # Precomputed vector and sample candidates for isolated stage micro-benchmarks
+        precomputed_vector = self.pipeline.embedder.embed_text(query)
         sample_candidates = self.pipeline.retriever.retrieve(query=query, context=context)
 
+        # -------------------------------------------------------------
+        # Measurement phase: exactly `iterations` samples recorded
+        # -------------------------------------------------------------
         for _ in range(iterations):
-            # ---------------------------------------------------------
             # 1. Standalone Stage Micro-Benchmarks (Component Isolation)
-            # ---------------------------------------------------------
-            # Standalone raw retrieval (ChromaDB query without guard, using precomputed vector)
+            # Stage A: Query Embedding
             t0 = time.perf_counter()
-            self.pipeline.indexer.query(query_embedding=query_vector, top_k=settings.default_top_k, where_filter=None)
+            _ = self.pipeline.embedder.embed_text(query)
+            t1 = time.perf_counter()
+            query_embedding_times.append((t1 - t0) * 1000.0)
+
+            # Stage B: Standalone raw retrieval (ChromaDB query without guard, using precomputed vector)
+            t0 = time.perf_counter()
+            self.pipeline.indexer.query(query_embedding=precomputed_vector, top_k=settings.default_top_k, where_filter=None)
             t1 = time.perf_counter()
             raw_retrieval_times.append((t1 - t0) * 1000.0)
 
-            # Standalone authorization guard (filtering candidate list)
+            # Stage C: Standalone authorization guard (filtering candidate list)
             t0 = time.perf_counter()
             self.pipeline.guard.filter_authorized_candidates(candidates=sample_candidates, context=context)
             t1 = time.perf_counter()
             auth_guard_times.append((t1 - t0) * 1000.0)
 
-            # Standalone prompt construction
+            # Stage D: Standalone prompt construction
             t0 = time.perf_counter()
             bundle = self.pipeline.prompt_builder.build(query=query, chunks=sample_candidates)
             t1 = time.perf_counter()
             prompt_times.append((t1 - t0) * 1000.0)
 
-            # Standalone offline fake generation (kept separate from pipeline timing)
+            # Stage E: Standalone offline fake generation (kept separate from pipeline timing)
             t0 = time.perf_counter()
             raw_output = self.pipeline.fake_provider.generate(bundle.user_prompt)
             t1 = time.perf_counter()
             gen_offline_times.append((t1 - t0) * 1000.0)
 
-            # Standalone output validation
+            # Stage F: Standalone output validation
             t0 = time.perf_counter()
             self.pipeline.output_validator.validate(raw_output)
             t1 = time.perf_counter()
             val_times.append((t1 - t0) * 1000.0)
 
-            # ---------------------------------------------------------
             # 2. Contiguous End-to-End Pipeline Timing (Equivalent Work)
-            # ---------------------------------------------------------
             # Both paths perform:
             # - Input query validation
-            # - Query embedding generation
+            # - Query embedding generation (embed_text called exactly once)
             # - Vector retrieval from ChromaDB
             # - Prompt formatting
             # - Response output handling
 
             # Defended Path:
-            # Validates query -> Embeds query -> Retrieves with pre-filter & AuthorizationGuard ->
-            # Constructs secure XML prompt -> Validates output with CanaryRegistry
+            # Validate -> Embed query -> Query with pre-filter & AuthorizationGuard ->
+            # Construct XML prompt -> Validate output with CanaryRegistry
             t0 = time.perf_counter()
             if len(query) > settings.max_query_length or not query.strip():
                 raise ValueError("Query exceeds validation boundaries")
-            cands = self.pipeline.retriever.retrieve(query=query, context=context, top_k=settings.default_top_k)
-            p_bundle = self.pipeline.prompt_builder.build(query=query, chunks=cands)
+            defended_query_vec = self.pipeline.embedder.embed_text(query)
+            where_filter = build_where_filter(context)
+            filtered_cands = self.pipeline.indexer.query(
+                query_embedding=defended_query_vec,
+                top_k=settings.default_top_k,
+                where_filter=where_filter,
+            )
+            authorized_cands = self.pipeline.guard.filter_authorized_candidates(
+                candidates=filtered_cands,
+                context=context,
+            )
+            p_bundle = self.pipeline.prompt_builder.build(query=query, chunks=authorized_cands)
             self.pipeline.output_validator.validate(sample_output)
             t1 = time.perf_counter()
             defended_totals.append((t1 - t0) * 1000.0)
 
             # Baseline Path (Equivalent work without security controls):
-            # Validates query -> Embeds query -> Retrieves raw ChromaDB chunks (no pre-filter, no guard) ->
-            # Formats plain prompt without XML boundaries -> Delivers output without validator
+            # Validate -> Embed query -> Retrieve raw ChromaDB chunks (no pre-filter, no guard) ->
+            # Plain text prompt formatting -> Direct output handling without validator
             t0 = time.perf_counter()
             if len(query) > settings.max_query_length or not query.strip():
                 raise ValueError("Query exceeds validation boundaries")
-            base_vec = self.pipeline.embedder.embed_text(query)
-            raw_chunks = self.pipeline.indexer.query(query_embedding=base_vec, top_k=settings.default_top_k, where_filter=None)
+            baseline_query_vec = self.pipeline.embedder.embed_text(query)
+            raw_chunks = self.pipeline.indexer.query(
+                query_embedding=baseline_query_vec,
+                top_k=settings.default_top_k,
+                where_filter=None,
+            )
             _ = f"Question: {query}\nContext: {' '.join(c.content for c in raw_chunks)}"
-            _ = sample_output
+            _ = len(sample_output) > 0
             t1 = time.perf_counter()
             baseline_totals.append((t1 - t0) * 1000.0)
 
         components = {
+            "standalone_query_embedding": calculate_stats(query_embedding_times),
             "standalone_raw_retrieval": calculate_stats(raw_retrieval_times),
             "standalone_authorization_guard": calculate_stats(auth_guard_times),
             "standalone_prompt_construction": calculate_stats(prompt_times),
